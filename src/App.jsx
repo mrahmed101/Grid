@@ -25,16 +25,20 @@ const getTodayDateKey = () => {
 };
 
 // --- DYNAMIC SCRIPT LOADER FOR TRADINGVIEW CHARTS ---
-// This completely bypasses all bundler and local build errors
+// Pinned to v4.1.1 to prevent "File Not Found" errors from version 5.0 updates
 let scriptPromise = null;
 const loadLightweightCharts = () => {
   if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
   if (!scriptPromise) {
-    scriptPromise = new Promise((resolve) => {
+    scriptPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = 'https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';
+      script.src = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
       script.async = true;
-      script.onload = () => resolve(window.LightweightCharts);
+      script.onload = () => {
+        if (window.LightweightCharts) resolve(window.LightweightCharts);
+        else reject(new Error("LightweightCharts failed to attach to window."));
+      };
+      script.onerror = () => reject(new Error("Failed to load the chart library."));
       document.head.appendChild(script);
     });
   }
@@ -51,20 +55,20 @@ const TradingViewChart = ({ data }) => {
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
 
-  // Initialize the Chart
+  // Initialize the Chart securely ensuring standard React strict-mode compatibility
   useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    let chart;
     let isMounted = true;
+    let handleResize;
+
+    if (!chartContainerRef.current) return;
 
     loadLightweightCharts().then((LightweightCharts) => {
       if (!isMounted || !chartContainerRef.current) return;
       const { createChart, CrosshairMode } = LightweightCharts;
 
-      chart = createChart(chartContainerRef.current, {
+      const chart = createChart(chartContainerRef.current, {
         layout: { 
-          background: { type: 'solid', color: 'transparent' }, 
+          background: { type: 'solid', color: '#0A0A0A' }, // Hardcoded hex to prevent strict v4 bugs
           textColor: '#71717a' 
         },
         grid: { 
@@ -96,11 +100,11 @@ const TradingViewChart = ({ data }) => {
       seriesRef.current = candleSeries;
 
       if (data && data.length > 0) {
-        candleSeries.setData(data);
+        try { candleSeries.setData(data); } catch (e) { console.error(e); }
       }
 
-      // Use ResizeObserver to ensure charts fit perfectly into flex containers
-      const handleResize = () => {
+      // Use ResizeObserver to ensure charts instantly snap to the correct layout width/height
+      handleResize = () => {
         if (chartContainerRef.current && chartRef.current) {
           chartRef.current.applyOptions({ 
              width: chartContainerRef.current.clientWidth,
@@ -109,14 +113,13 @@ const TradingViewChart = ({ data }) => {
         }
       };
       
-      handleResize(); // Initial sizing
-
+      handleResize(); 
       const resizeObserver = new ResizeObserver(() => handleResize());
       resizeObserver.observe(chartContainerRef.current);
 
       // Save observer to cleanup function
       chartContainerRef.current.__resizeObserver = resizeObserver;
-    });
+    }).catch(err => console.error("Chart Loader Error:", err));
 
     return () => {
       isMounted = false;
@@ -125,11 +128,12 @@ const TradingViewChart = ({ data }) => {
       }
       if (chartRef.current) {
          chartRef.current.remove();
+         chartRef.current = null;
       }
     };
   }, []);
 
-  // Safely inject data into the chart on update
+  // Inject real-time data seamlessly into the drawn chart
   useEffect(() => {
     if (seriesRef.current && data) {
       try {
@@ -140,7 +144,7 @@ const TradingViewChart = ({ data }) => {
     }
   }, [data]);
 
-  return <div ref={chartContainerRef} className="w-full h-full min-h-[200px]" />;
+  return <div ref={chartContainerRef} className="w-full h-full min-h-[200px] relative" />;
 };
 
 // --- TERMINAL VIEW ---
