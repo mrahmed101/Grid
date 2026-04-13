@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, ArrowUpRight, AlertTriangle, Zap, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, ArrowUpRight, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power } from 'lucide-react';
 
 // =====================================================================
 // HELPER FUNCTIONS & MATH ENGINE
@@ -11,35 +11,8 @@ const formatPrice = (price) => {
 };
 
 const calculateCommissions = (shares, price) => {
-  if (shares < 200 && price < 1.00) return 0.005 * shares; 
+  if (shares < 200 && price < 1.00 && price > 0) return 0.005 * shares; 
   return 0; 
-};
-
-// Updated generator to produce TradingView-compatible data {time, open, high, low, close}
-const generateCandles = (startPrice, count) => {
-  let currentPrice = startPrice;
-  const candles = [];
-  let currentTime = Math.floor(Date.now() / 1000) - (count * 60); // Start 'count' minutes ago
-
-  for (let i = 0; i < count; i++) {
-    const volatility = currentPrice * 0.02;
-    const open = currentPrice;
-    const close = open + (Math.random() - 0.5) * volatility;
-    const high = Math.max(open, close) + Math.random() * (volatility / 2);
-    const low = Math.min(open, close) - Math.random() * (volatility / 2);
-    
-    candles.push({ 
-      time: currentTime, 
-      open: open, 
-      high: high, 
-      low: low, 
-      close: close 
-    });
-    
-    currentPrice = close;
-    currentTime += 60; // Add 1 minute
-  }
-  return candles;
 };
 
 // --- DYNAMIC SCRIPT LOADER FOR TRADINGVIEW CHARTS ---
@@ -133,8 +106,12 @@ const TradingViewChart = ({ data, height = 150 }) => {
 
   // Update data when it changes
   useEffect(() => {
-    if (seriesRef.current && data && data.length > 0) {
-      seriesRef.current.setData(data);
+    if (seriesRef.current && data) {
+      if (data.length > 0) {
+        seriesRef.current.setData(data);
+      } else {
+        seriesRef.current.setData([]);
+      }
     }
   }, [data]);
 
@@ -143,8 +120,8 @@ const TradingViewChart = ({ data, height = 150 }) => {
 
 // --- TERMINAL VIEW ---
 const TerminalView = ({ activeTicker, marketData, settings }) => {
-  const data = marketData[activeTicker] || { price: 0 };
-  const entryPrice = data.price;
+  const data = marketData[activeTicker] || { price: 0, candles1m: [], candles5m: [] };
+  const entryPrice = data.price || 0; // Default to 0 since simulation is removed
   
   const [riskUsd, setRiskUsd] = useState(settings.defaultRisk || 50);
   const [slType, setSlType] = useState('pct'); 
@@ -157,7 +134,7 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
   
   let finalTp = tpUsd ? parseFloat(tpUsd) : entryPrice + (riskPerShare * 2);
   const spread = finalTp - slPrice;
-  const spreadWarning = spread < 0.008 && entryPrice > 0;
+  const isSpreadValid = spread >= 0.008 && entryPrice > 0;
   const commission = calculateCommissions(shares, entryPrice);
 
   return (
@@ -192,10 +169,22 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
           </div>
 
           <div>
-            <label className="text-xs text-zinc-500 font-mono mb-1 flex justify-between">
-              TAKE PROFIT ($) <span className="text-zinc-700">Blank = 1:2 Auto</span>
-            </label>
-            <input type="number" step="0.0001" placeholder={formatPrice(finalTp)} value={tpUsd} onChange={(e) => setTpUsd(e.target.value)} className="w-full bg-[#111] border border-zinc-800 rounded p-2 text-white font-mono focus:border-emerald-500 outline-none placeholder:text-zinc-700" />
+            <div className="flex justify-between items-end mb-1">
+              <label className="text-xs text-zinc-500 font-mono flex items-center gap-2">
+                TAKE PROFIT ($) 
+                <span className="text-zinc-700 font-normal">Blank = 1:2 Auto</span>
+              </label>
+            </div>
+            <div className="relative flex items-center">
+               <input type="number" step="0.0001" placeholder={formatPrice(finalTp)} value={tpUsd} onChange={(e) => setTpUsd(e.target.value)} className={`w-full bg-[#111] border ${isSpreadValid ? 'border-zinc-800 focus:border-emerald-500' : 'border-red-900/50 focus:border-red-500'} rounded p-2 text-white font-mono outline-none placeholder:text-zinc-700 pr-10`} />
+               {/* SPREAD INDICATOR LIGHT */}
+               <div className="absolute right-4 flex items-center justify-center">
+                  <div className={`w-3 h-3 rounded-full shadow-[0_0_8px] ${isSpreadValid ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-red-500 shadow-red-500/50'}`}></div>
+               </div>
+            </div>
+            {!isSpreadValid && entryPrice > 0 && (
+               <span className="text-[10px] text-red-500 font-mono mt-1 block">Spread {formatPrice(spread)} is below 0.008 minimum</span>
+            )}
           </div>
         </div>
 
@@ -214,13 +203,6 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
             <span className="text-red-400">${formatPrice(slPrice)}</span>
           </div>
           
-          {spreadWarning && (
-            <div className="bg-red-950/30 border border-red-900/50 rounded p-2 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-              <span className="text-xs font-mono text-red-400 leading-tight">WARNING: Spread between SL and TP is {formatPrice(spread)}, which is below your $0.008 minimum rule.</span>
-            </div>
-          )}
-
           {commission > 0 ? (
             <div className="bg-amber-950/30 border border-amber-900/50 rounded p-2 flex items-center justify-between">
               <span className="text-xs font-mono text-amber-500 flex items-center gap-2"><Wallet className="w-3 h-3" /> TRADEZERO FEE</span>
@@ -235,12 +217,14 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
       </div>
 
       <div className="xl:col-span-2 flex flex-col gap-6">
-        <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col">
-          <h3 className="text-xs font-mono text-zinc-500 mb-2">1-MINUTE TIMEFRAME (SIMULATION)</h3>
+        <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col relative">
+          <h3 className="text-xs font-mono text-zinc-500 mb-2">1-MINUTE TIMEFRAME</h3>
+          {data.candles1m.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-zinc-700 font-mono text-sm z-10 pointer-events-none">AWAITING REAL DATA...</div>}
           <div className="flex-1 min-h-[200px]"><TradingViewChart data={data.candles1m} /></div>
         </div>
-        <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col">
-          <h3 className="text-xs font-mono text-zinc-500 mb-2">5-MINUTE TIMEFRAME (SIMULATION)</h3>
+        <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col relative">
+          <h3 className="text-xs font-mono text-zinc-500 mb-2">5-MINUTE TIMEFRAME</h3>
+          {data.candles5m.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-zinc-700 font-mono text-sm z-10 pointer-events-none">AWAITING REAL DATA...</div>}
           <div className="flex-1 min-h-[200px]"><TradingViewChart data={data.candles5m} /></div>
         </div>
       </div>
@@ -261,7 +245,7 @@ const AIDeskView = ({ activeTicker, marketData }) => {
       setIsScanning(false);
       setAiResponse({
         type: 'news',
-        content: `TARGET: ${activeTicker}\nCATALYST: Simulated Data Scan\nSENTIMENT: NEUTRAL\n\nIMPACT:\n- This is a simulation placeholder.\n- AI API is not connected yet.\n- Will be live in next phase.`
+        content: `TARGET: ${activeTicker}\nCATALYST: Data Scan\nSENTIMENT: NEUTRAL\n\nIMPACT:\n- API is not connected yet.\n- Will be live in next phase.`
       });
     }, 1000);
   };
@@ -272,7 +256,7 @@ const AIDeskView = ({ activeTicker, marketData }) => {
       setIsThinking(false);
       setAiResponse({
         type: 'setup',
-        content: `ANALYSIS FOR ${activeTicker} @ $${formatPrice(marketData[activeTicker]?.price)}\n\n1. SIMULATION MODE ACTIVE.\n2. No live Alpaca data connected yet.\n3. Awaiting API integration.`
+        content: `ANALYSIS FOR ${activeTicker} @ $${formatPrice(marketData[activeTicker]?.price)}\n\n1. No live Alpaca data connected yet.\n2. Awaiting API integration.`
       });
     }, 1000);
   };
@@ -370,58 +354,26 @@ export default function App() {
       polygonKey: '', 
       geminiKey: '', 
       defaultRisk: 50, 
-      defaultSlPct: 2.0 
+      defaultSlPct: 2.0,
+      includePreMarket: false // New Setting Added
     };
   });
 
   const [marketData, setMarketData] = useState({});
 
-  // Mock Data Generator for TradingView Format
+  // Initialize empty data sets since we removed the fake simulator
   useEffect(() => {
     const newData = { ...marketData };
     tickers.forEach(t => {
       if (!newData[t]) {
         newData[t] = {
-          price: t === 'HOLO' ? 0.8540 : Math.random() * 200 + 10,
-          candles1m: generateCandles(t === 'HOLO' ? 0.85 : Math.random() * 200 + 10, 60),
-          candles5m: generateCandles(t === 'HOLO' ? 0.85 : Math.random() * 200 + 10, 60)
+          price: 0,
+          candles1m: [],
+          candles5m: []
         };
       }
     });
     setMarketData(newData);
-
-    const interval = setInterval(() => {
-      setMarketData(prev => {
-        const next = { ...prev };
-        Object.keys(next).forEach(t => {
-          const oldPrice = next[t].price;
-          const newPrice = oldPrice * (1 + (Math.random() - 0.5) * 0.005);
-          const lastCandle = next[t].candles1m[next[t].candles1m.length - 1];
-          const newTime = lastCandle.time + 60;
-          
-          const updatedCandles = [
-            ...next[t].candles1m.slice(1), 
-            { 
-              time: newTime, 
-              open: oldPrice, 
-              high: Math.max(oldPrice, newPrice), 
-              low: Math.min(oldPrice, newPrice), 
-              close: newPrice 
-            }
-          ];
-
-          next[t] = {
-            ...next[t],
-            price: newPrice,
-            candles1m: updatedCandles,
-            candles5m: updatedCandles // Simplification for simulation
-          };
-        });
-        return next;
-      });
-    }, 5000); // 5 sec ticks to show movement
-
-    return () => clearInterval(interval);
   }, [tickers]);
 
   useEffect(() => {
@@ -440,6 +392,11 @@ export default function App() {
   const removeTicker = (t) => {
     setTickers(tickers.filter(ticker => ticker !== t));
     if (activeTicker === t) setActiveTicker(tickers[0] || '');
+  };
+
+  const handleManualRefresh = () => {
+    // Placeholder function for when we connect the API
+    console.log("Manual refresh triggered for: ", activeTicker);
   };
 
   return (
@@ -499,13 +456,30 @@ export default function App() {
               <h1 className="text-4xl font-mono font-black text-white tracking-tight">{activeTicker}</h1>
               <div className="flex flex-col">
                 <span className="text-2xl font-mono font-bold text-emerald-400 leading-none">${formatPrice(marketData[activeTicker]?.price)}</span>
-                <span className="text-xs font-mono text-zinc-500 flex items-center gap-1 mt-1">SIMULATED FEED</span>
+                <span className="text-xs font-mono text-zinc-500 flex items-center gap-1 mt-1">REAL-TIME FEED</span>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            
+            <div className="flex items-center gap-6">
+               {/* INCLUDE PRE MARKET TOGGLE */}
+               <label className="flex items-center gap-2 cursor-pointer group">
+                  <span className="text-xs font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors">EXTENDED HOURS</span>
+                  <div className={`w-8 h-4 rounded-full relative transition-colors ${settings.includePreMarket ? 'bg-emerald-500' : 'bg-zinc-800'}`}>
+                     <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${settings.includePreMarket ? 'left-4.5' : 'left-0.5'}`} style={{ left: settings.includePreMarket ? '18px' : '2px' }}></div>
+                  </div>
+                  <input type="checkbox" className="hidden" checked={settings.includePreMarket} onChange={() => setSettings({...settings, includePreMarket: !settings.includePreMarket})} />
+               </label>
+
+               <div className="h-6 w-px bg-[#1A1A1A]"></div>
+
+               {/* REFRESH BUTTON */}
+               <button onClick={handleManualRefresh} className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-all" title="Manual Refresh">
+                 <RefreshCw className="w-4 h-4" />
+               </button>
+
                <div className="text-right flex flex-col items-end">
                   <span className="text-xs font-mono text-zinc-500">MARKET STATUS</span>
-                  <span className="text-sm font-mono text-emerald-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> SIMULATION</span>
+                  <span className="text-sm font-mono text-red-500 flex items-center gap-1"><Power className="w-3 h-3" /> OFFLINE</span>
                </div>
             </div>
           </div>
@@ -523,7 +497,10 @@ export default function App() {
                       <span className="font-mono font-bold text-white group-hover:text-emerald-400">{t}</span>
                       <span className="font-mono text-sm text-zinc-400">${formatPrice(marketData[t]?.price)}</span>
                     </div>
-                    <div className="flex-1 cursor-crosshair"><TradingViewChart data={marketData[t]?.candles1m} /></div>
+                    <div className="flex-1 cursor-crosshair relative">
+                       {(!marketData[t]?.candles1m || marketData[t].candles1m.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-zinc-700 font-mono text-sm z-10 pointer-events-none">AWAITING REAL DATA...</div>}
+                       <TradingViewChart data={marketData[t]?.candles1m} />
+                    </div>
                   </div>
                 ))}
               </div>
