@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power, Calendar, Wifi } from 'lucide-react';
-import { createChart, CrosshairMode } from 'lightweight-charts';
 
 // =====================================================================
 // HELPER FUNCTIONS & MATH ENGINE
@@ -25,6 +24,23 @@ const getTodayDateKey = () => {
   return `${dayName} ${day}/${month}`;
 };
 
+// --- DYNAMIC SCRIPT LOADER FOR TRADINGVIEW CHARTS ---
+// This completely bypasses all bundler and local build errors
+let scriptPromise = null;
+const loadLightweightCharts = () => {
+  if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
+  if (!scriptPromise) {
+    scriptPromise = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';
+      script.async = true;
+      script.onload = () => resolve(window.LightweightCharts);
+      document.head.appendChild(script);
+    });
+  }
+  return scriptPromise;
+};
+
 // =====================================================================
 // UI COMPONENTS
 // =====================================================================
@@ -39,56 +55,74 @@ const TradingViewChart = ({ data }) => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: { 
-        background: { type: 'solid', color: 'transparent' }, 
-        textColor: '#71717a' 
-      },
-      grid: { 
-        vertLines: { color: '#1A1A1A' }, 
-        horzLines: { color: '#1A1A1A' } 
-      },
-      crosshair: { 
-        mode: CrosshairMode.Normal 
-      },
-      timeScale: { 
-        borderColor: '#1A1A1A', 
-        timeVisible: true,
-        secondsVisible: false
-      },
-      rightPriceScale: { 
-        borderColor: '#1A1A1A' 
-      },
-    });
+    let chart;
+    let isMounted = true;
 
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#10b981', 
-      downColor: '#f43f5e',
-      borderVisible: false,
-      wickUpColor: '#10b981', 
-      wickDownColor: '#f43f5e',
-    });
+    loadLightweightCharts().then((LightweightCharts) => {
+      if (!isMounted || !chartContainerRef.current) return;
+      const { createChart, CrosshairMode } = LightweightCharts;
 
-    chartRef.current = chart;
-    seriesRef.current = candleSeries;
+      chart = createChart(chartContainerRef.current, {
+        layout: { 
+          background: { type: 'solid', color: 'transparent' }, 
+          textColor: '#71717a' 
+        },
+        grid: { 
+          vertLines: { color: '#1A1A1A' }, 
+          horzLines: { color: '#1A1A1A' } 
+        },
+        crosshair: { 
+          mode: CrosshairMode.Normal 
+        },
+        timeScale: { 
+          borderColor: '#1A1A1A', 
+          timeVisible: true,
+          secondsVisible: false
+        },
+        rightPriceScale: { 
+          borderColor: '#1A1A1A' 
+        },
+      });
 
-    // Use ResizeObserver to ensure charts fit perfectly into flex containers
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ 
-           width: chartContainerRef.current.clientWidth,
-           height: chartContainerRef.current.clientHeight
-        });
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: '#10b981', 
+        downColor: '#f43f5e',
+        borderVisible: false,
+        wickUpColor: '#10b981', 
+        wickDownColor: '#f43f5e',
+      });
+
+      chartRef.current = chart;
+      seriesRef.current = candleSeries;
+
+      if (data && data.length > 0) {
+        candleSeries.setData(data);
       }
-    };
-    
-    handleResize(); // Initial sizing
 
-    const resizeObserver = new ResizeObserver(() => handleResize());
-    resizeObserver.observe(chartContainerRef.current);
+      // Use ResizeObserver to ensure charts fit perfectly into flex containers
+      const handleResize = () => {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({ 
+             width: chartContainerRef.current.clientWidth,
+             height: chartContainerRef.current.clientHeight
+          });
+        }
+      };
+      
+      handleResize(); // Initial sizing
+
+      const resizeObserver = new ResizeObserver(() => handleResize());
+      resizeObserver.observe(chartContainerRef.current);
+
+      // Save observer to cleanup function
+      chartContainerRef.current.__resizeObserver = resizeObserver;
+    });
 
     return () => {
-      resizeObserver.disconnect();
+      isMounted = false;
+      if (chartContainerRef.current && chartContainerRef.current.__resizeObserver) {
+        chartContainerRef.current.__resizeObserver.disconnect();
+      }
       if (chartRef.current) {
          chartRef.current.remove();
       }
