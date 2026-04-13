@@ -25,105 +25,88 @@ const getTodayDateKey = () => {
   return `${dayName} ${day}/${month}`;
 };
 
-// --- DYNAMIC SCRIPT LOADER FOR TRADINGVIEW CHARTS ---
-let scriptPromise = null;
-const loadLightweightCharts = () => {
-  if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
-  if (!scriptPromise) {
-    scriptPromise = new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';
-      script.async = true;
-      script.onload = () => resolve(window.LightweightCharts);
-      document.head.appendChild(script);
-    });
-  }
-  return scriptPromise;
-};
-
 // =====================================================================
 // UI COMPONENTS
 // =====================================================================
 
 // --- TRADINGVIEW LIGHTWEIGHT CHART COMPONENT ---
-const TradingViewChart = ({ data, height = 150 }) => {
+const TradingViewChart = ({ data }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
 
+  // Initialize the Chart
   useEffect(() => {
-    let chart;
-    let isMounted = true;
-    let handleResize;
+    if (!chartContainerRef.current) return;
 
-    loadLightweightCharts().then((LightweightCharts) => {
-      if (!isMounted || !chartContainerRef.current) return;
-      const { createChart, CrosshairMode } = LightweightCharts;
-
-      chart = createChart(chartContainerRef.current, {
-        height: height,
-        layout: { 
-          background: { type: 'solid', color: 'transparent' }, 
-          textColor: '#71717a' 
-        },
-        grid: { 
-          vertLines: { color: '#1A1A1A' }, 
-          horzLines: { color: '#1A1A1A' } 
-        },
-        crosshair: { 
-          mode: CrosshairMode.Normal 
-        },
-        timeScale: { 
-          borderColor: '#1A1A1A', 
-          timeVisible: true,
-          secondsVisible: false
-        },
-        rightPriceScale: { 
-          borderColor: '#1A1A1A' 
-        },
-      });
-
-      const candleSeries = chart.addCandlestickSeries({
-        upColor: '#10b981', 
-        downColor: '#f43f5e',
-        borderVisible: false,
-        wickUpColor: '#10b981', 
-        wickDownColor: '#f43f5e',
-      });
-
-      chartRef.current = chart;
-      seriesRef.current = candleSeries;
-
-      if (data && data.length > 0) {
-        candleSeries.setData(data);
-      }
-
-      handleResize = () => {
-        if (chartContainerRef.current && chart) {
-          chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-        }
-      };
-      window.addEventListener('resize', handleResize);
+    const chart = createChart(chartContainerRef.current, {
+      layout: { 
+        background: { type: 'solid', color: 'transparent' }, 
+        textColor: '#71717a' 
+      },
+      grid: { 
+        vertLines: { color: '#1A1A1A' }, 
+        horzLines: { color: '#1A1A1A' } 
+      },
+      crosshair: { 
+        mode: CrosshairMode.Normal 
+      },
+      timeScale: { 
+        borderColor: '#1A1A1A', 
+        timeVisible: true,
+        secondsVisible: false
+      },
+      rightPriceScale: { 
+        borderColor: '#1A1A1A' 
+      },
     });
 
-    return () => {
-      isMounted = false;
-      if (handleResize) window.removeEventListener('resize', handleResize);
-      if (chart) chart.remove();
-    };
-  }, [height]);
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#10b981', 
+      downColor: '#f43f5e',
+      borderVisible: false,
+      wickUpColor: '#10b981', 
+      wickDownColor: '#f43f5e',
+    });
 
+    chartRef.current = chart;
+    seriesRef.current = candleSeries;
+
+    // Use ResizeObserver to ensure charts fit perfectly into flex containers
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ 
+           width: chartContainerRef.current.clientWidth,
+           height: chartContainerRef.current.clientHeight
+        });
+      }
+    };
+    
+    handleResize(); // Initial sizing
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(chartContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (chartRef.current) {
+         chartRef.current.remove();
+      }
+    };
+  }, []);
+
+  // Safely inject data into the chart on update
   useEffect(() => {
     if (seriesRef.current && data) {
-      if (data.length > 0) {
-        seriesRef.current.setData(data);
-      } else {
-        seriesRef.current.setData([]);
+      try {
+         seriesRef.current.setData(data.length > 0 ? data : []);
+      } catch (e) {
+         console.error("TradingView Chart Data Error:", e);
       }
     }
   }, [data]);
 
-  return <div ref={chartContainerRef} className="w-full h-full" />;
+  return <div ref={chartContainerRef} className="w-full h-full min-h-[200px]" />;
 };
 
 // --- TERMINAL VIEW ---
@@ -227,12 +210,12 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
         <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col relative">
           <h3 className="text-xs font-mono text-zinc-500 mb-2">1-MINUTE TIMEFRAME</h3>
           {data.candles1m.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-zinc-700 font-mono text-sm z-10 pointer-events-none">AWAITING REAL DATA...</div>}
-          <div className="flex-1 min-h-[200px]"><TradingViewChart data={data.candles1m} /></div>
+          <div className="flex-1 flex flex-col min-h-[200px]"><TradingViewChart data={data.candles1m} /></div>
         </div>
         <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-4 flex-1 flex flex-col relative">
           <h3 className="text-xs font-mono text-zinc-500 mb-2">5-MINUTE TIMEFRAME</h3>
           {data.candles5m.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-zinc-700 font-mono text-sm z-10 pointer-events-none">AWAITING REAL DATA...</div>}
-          <div className="flex-1 min-h-[200px]"><TradingViewChart data={data.candles5m} /></div>
+          <div className="flex-1 flex flex-col min-h-[200px]"><TradingViewChart data={data.candles5m} /></div>
         </div>
       </div>
     </div>
@@ -381,7 +364,7 @@ export default function App() {
     const saved = localStorage.getItem('grid_settings');
     return saved ? JSON.parse(saved) : { 
       alpacaKey: '', 
-      alpacaSecret: '', // ADDED SECRET KEY
+      alpacaSecret: '', 
       polygonKey: '', 
       geminiKey: '', 
       defaultRisk: 50, 
@@ -425,7 +408,6 @@ export default function App() {
       };
 
       // Pull historical 1m and 5m bars from Alpaca
-      // Free tier uses 'iex'. If you upgrade to paid, change 'feed=iex' to 'feed=sip'
       const [res1m, res5m, resTrades] = await Promise.all([
         fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${symbols}&timeframe=1Min&limit=500&feed=iex`, { headers }),
         fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${symbols}&timeframe=5Min&limit=200&feed=iex`, { headers }),
@@ -452,11 +434,27 @@ export default function App() {
           const raw5m = data5m.bars?.[ticker] || [];
           const latestTrade = dataTrades.trades?.[ticker];
 
-          // Format timestamps correctly for lightweight-charts
-          const formatBars = (bars) => bars.map(b => ({
-            time: new Date(b.t).getTime() / 1000, 
-            open: b.o, high: b.h, low: b.l, close: b.c
-          })).sort((a, b) => a.time - b.time);
+          // SAFEGUARD FORMATTER: Drops Duplicate Timestamps that Crash TradingView
+          const formatBars = (bars) => {
+            if (!bars || !Array.isArray(bars)) return [];
+            const unique = [];
+            let lastTime = 0;
+            
+            // Ensure strict chronological sort first
+            const sorted = [...bars].sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+            
+            sorted.forEach(b => {
+              const t = Math.floor(new Date(b.t).getTime() / 1000);
+              if (t > lastTime) {
+                unique.push({ time: t, open: b.o, high: b.h, low: b.l, close: b.c });
+                lastTime = t;
+              } else if (t === lastTime && unique.length > 0) {
+                // If Alpaca glitch pushes two bars for same exact minute, override with newest
+                unique[unique.length - 1] = { time: t, open: b.o, high: b.h, low: b.l, close: b.c };
+              }
+            });
+            return unique;
+          };
 
           const formatted1m = formatBars(raw1m);
           const formatted5m = formatBars(raw5m);
