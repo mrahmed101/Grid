@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, ArrowUpRight, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power } from 'lucide-react';
+import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, ArrowUpRight, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power, Calendar } from 'lucide-react';
+import { createChart, CrosshairMode } from 'lightweight-charts';
 
 // =====================================================================
 // HELPER FUNCTIONS & MATH ENGINE
@@ -15,8 +16,16 @@ const calculateCommissions = (shares, price) => {
   return 0; 
 };
 
+const getTodayDateKey = () => {
+  const d = new Date();
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayName = days[d.getDay()];
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dayName} ${day}/${month}`;
+};
+
 // --- DYNAMIC SCRIPT LOADER FOR TRADINGVIEW CHARTS ---
-// This safely bypasses bundler resolution errors by loading the library directly into the browser.
 let scriptPromise = null;
 const loadLightweightCharts = () => {
   if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
@@ -102,9 +111,8 @@ const TradingViewChart = ({ data, height = 150 }) => {
       if (handleResize) window.removeEventListener('resize', handleResize);
       if (chart) chart.remove();
     };
-  }, [height]); // Run once on mount or height change
+  }, [height]);
 
-  // Update data when it changes
   useEffect(() => {
     if (seriesRef.current && data) {
       if (data.length > 0) {
@@ -121,7 +129,7 @@ const TradingViewChart = ({ data, height = 150 }) => {
 // --- TERMINAL VIEW ---
 const TerminalView = ({ activeTicker, marketData, settings }) => {
   const data = marketData[activeTicker] || { price: 0, candles1m: [], candles5m: [] };
-  const entryPrice = data.price || 0; // Default to 0 since simulation is removed
+  const entryPrice = data.price || 0; 
   
   const [riskUsd, setRiskUsd] = useState(settings.defaultRisk || 50);
   const [slType, setSlType] = useState('pct'); 
@@ -141,7 +149,7 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 h-full">
       <div className="xl:col-span-1 bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-6 flex flex-col gap-6">
         <div className="flex justify-between items-center border-b border-[#1A1A1A] pb-4">
-          <h2 className="text-xl font-mono text-white font-bold">{activeTicker} <span className="text-zinc-500 text-sm">CALCULATOR</span></h2>
+          <h2 className="text-xl font-mono text-white font-bold">{activeTicker || '---'} <span className="text-zinc-500 text-sm">CALCULATOR</span></h2>
           <div className="text-2xl font-mono text-emerald-400 font-bold">${formatPrice(entryPrice)}</div>
         </div>
 
@@ -177,7 +185,6 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
             </div>
             <div className="relative flex items-center">
                <input type="number" step="0.0001" placeholder={formatPrice(finalTp)} value={tpUsd} onChange={(e) => setTpUsd(e.target.value)} className={`w-full bg-[#111] border ${isSpreadValid ? 'border-zinc-800 focus:border-emerald-500' : 'border-red-900/50 focus:border-red-500'} rounded p-2 text-white font-mono outline-none placeholder:text-zinc-700 pr-10`} />
-               {/* SPREAD INDICATOR LIGHT */}
                <div className="absolute right-4 flex items-center justify-center">
                   <div className={`w-3 h-3 rounded-full shadow-[0_0_8px] ${isSpreadValid ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-red-500 shadow-red-500/50'}`}></div>
                </div>
@@ -202,7 +209,7 @@ const TerminalView = ({ activeTicker, marketData, settings }) => {
             <span className="text-zinc-500">STOP LOSS</span>
             <span className="text-red-400">${formatPrice(slPrice)}</span>
           </div>
-          
+
           {commission > 0 ? (
             <div className="bg-amber-950/30 border border-amber-900/50 rounded p-2 flex items-center justify-between">
               <span className="text-xs font-mono text-amber-500 flex items-center gap-2"><Wallet className="w-3 h-3" /> TRADEZERO FEE</span>
@@ -270,18 +277,18 @@ const AIDeskView = ({ activeTicker, marketData }) => {
           <div className="space-y-6">
             <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-5">
               <h3 className="text-sm font-mono text-zinc-400 mb-4 flex justify-between items-center">
-                <span>1. NEWS SCANNER</span><span className="text-xs bg-zinc-900 px-2 py-1 rounded text-white">{activeTicker}</span>
+                <span>1. NEWS SCANNER</span><span className="text-xs bg-zinc-900 px-2 py-1 rounded text-white">{activeTicker || '---'}</span>
               </h3>
               <textarea value={newsInput} onChange={(e) => setNewsInput(e.target.value)} placeholder="Paste Alpaca raw news wire snippet here..." className="w-full h-32 bg-[#111] border border-zinc-800 rounded p-3 text-sm text-zinc-300 font-mono focus:border-blue-500 outline-none resize-none mb-4" />
-              <button onClick={handleNewsScan} disabled={isScanning || !newsInput} className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 py-3 rounded font-mono text-sm font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+              <button onClick={handleNewsScan} disabled={isScanning || !newsInput || !activeTicker} className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 py-3 rounded font-mono text-sm font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                 {isScanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} EXECUTE NEWS SCAN
               </button>
             </div>
             <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-5">
               <h3 className="text-sm font-mono text-zinc-400 mb-4 flex justify-between items-center">
-                <span>2. QUANT SETUP ANALYSIS</span><span className="text-xs bg-zinc-900 px-2 py-1 rounded text-white">{activeTicker}</span>
+                <span>2. QUANT SETUP ANALYSIS</span><span className="text-xs bg-zinc-900 px-2 py-1 rounded text-white">{activeTicker || '---'}</span>
               </h3>
-              <button onClick={handleGoLong} disabled={isThinking} className="w-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 py-4 rounded font-mono text-sm font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-10">
+              <button onClick={handleGoLong} disabled={isThinking || !activeTicker} className="w-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 py-4 rounded font-mono text-sm font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-10">
                 {isThinking ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 fill-emerald-500" />} GO LONG? (ASK ORACLE)
               </button>
             </div>
@@ -342,11 +349,30 @@ const SettingsView = ({ settings, setSettings }) => (
 // MAIN APP COMPONENT
 // =====================================================================
 export default function App() {
+  const todayKey = getTodayDateKey();
+
   const [activeTab, setActiveTab] = useState('terminal'); 
-  const [tickers, setTickers] = useState(['SPY', 'QQQ', 'NVDA', 'HOLO']);
-  const [activeTicker, setActiveTicker] = useState('HOLO');
   const [newTickerInput, setNewTickerInput] = useState('');
   
+  // Watchlist State Map (Date string -> Array of Tickers)
+  const [watchlists, setWatchlists] = useState(() => {
+    const saved = localStorage.getItem('grid_watchlists');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Ensure today's list always exists
+      if (!parsed[todayKey]) {
+        parsed[todayKey] = [];
+      }
+      return parsed;
+    }
+    // Default initial state
+    return { [todayKey]: ['SPY', 'QQQ', 'NVDA'] };
+  });
+
+  const [viewingListDate, setViewingListDate] = useState(todayKey);
+  const activeListTickers = watchlists[viewingListDate] || [];
+  const [activeTicker, setActiveTicker] = useState(activeListTickers[0] || '');
+
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('grid_settings');
     return saved ? JSON.parse(saved) : { 
@@ -355,16 +381,25 @@ export default function App() {
       geminiKey: '', 
       defaultRisk: 50, 
       defaultSlPct: 2.0,
-      includePreMarket: false // New Setting Added
+      includePreMarket: false 
     };
   });
 
   const [marketData, setMarketData] = useState({});
 
-  // Initialize empty data sets since we removed the fake simulator
+  // Automatically save settings and watchlists
+  useEffect(() => {
+    localStorage.setItem('grid_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_watchlists', JSON.stringify(watchlists));
+  }, [watchlists]);
+
+  // Ensure currently viewed list's tickers exist in marketData
   useEffect(() => {
     const newData = { ...marketData };
-    tickers.forEach(t => {
+    activeListTickers.forEach(t => {
       if (!newData[t]) {
         newData[t] = {
           price: 0,
@@ -374,28 +409,61 @@ export default function App() {
       }
     });
     setMarketData(newData);
-  }, [tickers]);
-
-  useEffect(() => {
-    localStorage.setItem('grid_settings', JSON.stringify(settings));
-  }, [settings]);
+    // If active ticker is blank but list has items, select the first
+    if (!activeTicker && activeListTickers.length > 0) {
+      setActiveTicker(activeListTickers[0]);
+    }
+  }, [activeListTickers, activeTicker]);
 
   const handleAddTicker = (e) => {
     e.preventDefault();
-    if (newTickerInput && !tickers.includes(newTickerInput.toUpperCase())) {
-      setTickers([...tickers, newTickerInput.toUpperCase()]);
-      setActiveTicker(newTickerInput.toUpperCase());
+    const t = newTickerInput.toUpperCase();
+    if (t && !activeListTickers.includes(t)) {
+      setWatchlists(prev => ({
+        ...prev,
+        [viewingListDate]: [...(prev[viewingListDate] || []), t]
+      }));
+      setActiveTicker(t);
     }
     setNewTickerInput('');
   };
 
-  const removeTicker = (t) => {
-    setTickers(tickers.filter(ticker => ticker !== t));
-    if (activeTicker === t) setActiveTicker(tickers[0] || '');
+  const removeTicker = (dateKey, t) => {
+    setWatchlists(prev => {
+      const updatedList = prev[dateKey].filter(ticker => ticker !== t);
+      return { ...prev, [dateKey]: updatedList };
+    });
+    if (activeTicker === t && viewingListDate === dateKey) {
+       setActiveTicker('');
+    }
+  };
+
+  const copyToToday = (t) => {
+    setWatchlists(prev => {
+      const todayList = prev[todayKey] || [];
+      if (!todayList.includes(t)) {
+        return { ...prev, [todayKey]: [...todayList, t] };
+      }
+      return prev;
+    });
+  };
+
+  const deleteEntireList = (dateKey) => {
+    if (dateKey === todayKey) return; // Prevent deleting today's list completely
+    if (window.confirm(`Delete the watchlist for ${dateKey}?`)) {
+      setWatchlists(prev => {
+        const newState = { ...prev };
+        delete newState[dateKey];
+        return newState;
+      });
+      if (viewingListDate === dateKey) {
+        setViewingListDate(todayKey);
+        setActiveTicker(watchlists[todayKey]?.[0] || '');
+      }
+    }
   };
 
   const handleManualRefresh = () => {
-    // Placeholder function for when we connect the API
     console.log("Manual refresh triggered for: ", activeTicker);
   };
 
@@ -423,23 +491,58 @@ export default function App() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col">
-          <h3 className="text-xs font-mono font-bold text-zinc-600 mb-4 tracking-wider">ACTIVE WATCHLIST</h3>
-          <div className="space-y-1 flex-1">
-            {tickers.map(ticker => (
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          
+          {/* WATCHLIST SELECTOR */}
+          <div className="p-4 border-b border-[#1A1A1A] bg-[#0A0A0A] sticky top-0 z-10">
+             <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-mono font-bold text-zinc-600 tracking-wider flex items-center gap-2"><Calendar className="w-3 h-3"/> WATCHLISTS</h3>
+                {viewingListDate !== todayKey && (
+                   <button onClick={() => deleteEntireList(viewingListDate)} className="text-zinc-600 hover:text-red-500 transition-colors" title="Delete entire list">
+                      <Trash2 className="w-3 h-3" />
+                   </button>
+                )}
+             </div>
+             <select 
+               value={viewingListDate} 
+               onChange={(e) => setViewingListDate(e.target.value)}
+               className="w-full bg-[#111] border border-zinc-800 rounded p-1.5 text-xs text-zinc-300 font-mono outline-none focus:border-emerald-500 cursor-pointer"
+             >
+               {Object.keys(watchlists).sort((a,b) => b.localeCompare(a)).map(dateStr => (
+                 <option key={dateStr} value={dateStr}>
+                    {dateStr} {dateStr === todayKey ? '(TODAY)' : ''}
+                 </option>
+               ))}
+             </select>
+          </div>
+
+          <div className="p-4 space-y-1 flex-1 overflow-y-auto">
+            {activeListTickers.length === 0 && (
+               <div className="text-xs font-mono text-zinc-600 text-center mt-4 border border-dashed border-zinc-800 rounded p-4">LIST IS EMPTY</div>
+            )}
+            {activeListTickers.map(ticker => (
               <div key={ticker} onClick={() => { setActiveTicker(ticker); setActiveTab('terminal'); }} className={`group flex items-center justify-between p-2 rounded cursor-pointer border ${activeTicker === ticker ? 'bg-zinc-900 border-zinc-700' : 'border-transparent hover:bg-zinc-900/50'}`}>
                 <div className="flex flex-col">
                   <span className={`font-mono text-sm font-bold ${activeTicker === ticker ? 'text-emerald-400' : 'text-zinc-300'}`}>{ticker}</span>
                   <span className="font-mono text-xs text-zinc-500">${formatPrice(marketData[ticker]?.price)}</span>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); removeTicker(ticker); }} className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-500 transition-all p-1">
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  {/* Show + button to copy to today's list IF viewing an old list */}
+                  {viewingListDate !== todayKey && !(watchlists[todayKey] || []).includes(ticker) && (
+                     <button onClick={(e) => { e.stopPropagation(); copyToToday(ticker); }} className="text-zinc-500 hover:text-emerald-400 p-1" title="Add to Today's List">
+                       <Plus className="w-3 h-3" />
+                     </button>
+                  )}
+                  {/* Remove from current list button */}
+                  <button onClick={(e) => { e.stopPropagation(); removeTicker(viewingListDate, ticker); }} className="text-zinc-600 hover:text-red-500 p-1" title="Remove from list">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
 
-          <form onSubmit={handleAddTicker} className="mt-4 pt-4 border-t border-[#1A1A1A]">
+          <form onSubmit={handleAddTicker} className="p-4 border-t border-[#1A1A1A]">
             <div className="relative">
               <Plus className="absolute left-2 top-2 w-4 h-4 text-zinc-500" />
               <input type="text" value={newTickerInput} onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())} placeholder="ADD TICKER..." className="w-full bg-[#111] border border-zinc-800 rounded p-1.5 pl-8 text-xs font-mono text-white focus:border-zinc-500 outline-none uppercase placeholder:text-zinc-700" />
@@ -453,7 +556,7 @@ export default function App() {
         {activeTab === 'terminal' && (
           <div className="h-20 border-b border-[#1A1A1A] flex items-center px-8 bg-[#050505]/90 backdrop-blur z-10 justify-between">
             <div className="flex items-center gap-4">
-              <h1 className="text-4xl font-mono font-black text-white tracking-tight">{activeTicker}</h1>
+              <h1 className="text-4xl font-mono font-black text-white tracking-tight">{activeTicker || '---'}</h1>
               <div className="flex flex-col">
                 <span className="text-2xl font-mono font-bold text-emerald-400 leading-none">${formatPrice(marketData[activeTicker]?.price)}</span>
                 <span className="text-xs font-mono text-zinc-500 flex items-center gap-1 mt-1">REAL-TIME FEED</span>
@@ -491,7 +594,7 @@ export default function App() {
             <div className="h-full flex flex-col">
               <h2 className="text-xl font-mono text-white font-bold mb-6 border-b border-[#1A1A1A] pb-4">WALL OF CHARTS</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 overflow-y-auto pr-2 pb-20">
-                {tickers.map(t => (
+                {activeListTickers.map(t => (
                   <div key={t} onClick={() => { setActiveTicker(t); setActiveTab('terminal'); }} className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-zinc-700 transition-colors cursor-pointer rounded-xl p-4 h-64 flex flex-col group">
                     <div className="flex justify-between items-center mb-4">
                       <span className="font-mono font-bold text-white group-hover:text-emerald-400">{t}</span>
