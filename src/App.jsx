@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, ArrowUpRight, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power, Calendar } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Activity, LayoutGrid, BrainCircuit, Wallet, Settings, Search, Plus, Trash2, AlertTriangle, Zap, RefreshCw, CheckCircle2, Power, Calendar, Wifi } from 'lucide-react';
 import { createChart, CrosshairMode } from 'lightweight-charts';
 
 // =====================================================================
@@ -252,7 +252,7 @@ const AIDeskView = ({ activeTicker, marketData }) => {
       setIsScanning(false);
       setAiResponse({
         type: 'news',
-        content: `TARGET: ${activeTicker}\nCATALYST: Data Scan\nSENTIMENT: NEUTRAL\n\nIMPACT:\n- API is not connected yet.\n- Will be live in next phase.`
+        content: `TARGET: ${activeTicker}\nCATALYST: Data Scan\nSENTIMENT: NEUTRAL\n\nIMPACT:\n- Google AI Studio is not connected yet.\n- Will be live in next phase.`
       });
     }, 1000);
   };
@@ -263,7 +263,7 @@ const AIDeskView = ({ activeTicker, marketData }) => {
       setIsThinking(false);
       setAiResponse({
         type: 'setup',
-        content: `ANALYSIS FOR ${activeTicker} @ $${formatPrice(marketData[activeTicker]?.price)}\n\n1. No live Alpaca data connected yet.\n2. Awaiting API integration.`
+        content: `ANALYSIS FOR ${activeTicker} @ $${formatPrice(marketData[activeTicker]?.price)}\n\n1. Google AI Studio is not connected yet.\n2. Awaiting Gemini integration.`
       });
     }, 1000);
   };
@@ -279,7 +279,7 @@ const AIDeskView = ({ activeTicker, marketData }) => {
               <h3 className="text-sm font-mono text-zinc-400 mb-4 flex justify-between items-center">
                 <span>1. NEWS SCANNER</span><span className="text-xs bg-zinc-900 px-2 py-1 rounded text-white">{activeTicker || '---'}</span>
               </h3>
-              <textarea value={newsInput} onChange={(e) => setNewsInput(e.target.value)} placeholder="Paste Alpaca raw news wire snippet here..." className="w-full h-32 bg-[#111] border border-zinc-800 rounded p-3 text-sm text-zinc-300 font-mono focus:border-blue-500 outline-none resize-none mb-4" />
+              <textarea value={newsInput} onChange={(e) => setNewsInput(e.target.value)} placeholder="Paste raw news wire snippet here..." className="w-full h-32 bg-[#111] border border-zinc-800 rounded p-3 text-sm text-zinc-300 font-mono focus:border-blue-500 outline-none resize-none mb-4" />
               <button onClick={handleNewsScan} disabled={isScanning || !newsInput || !activeTicker} className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 py-3 rounded font-mono text-sm font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
                 {isScanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} EXECUTE NEWS SCAN
               </button>
@@ -316,8 +316,12 @@ const SettingsView = ({ settings, setSettings }) => (
       <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl p-6 space-y-4">
         <h3 className="text-sm font-mono text-white font-bold border-b border-zinc-800 pb-2 mb-4">API CREDENTIALS</h3>
         <div>
-          <label className="text-xs text-zinc-500 font-mono mb-1 block">ALPACA API KEY (PRICE ACTION)</label>
+          <label className="text-xs text-zinc-500 font-mono mb-1 block">ALPACA API KEY ID (PRICE ACTION)</label>
           <input type="password" value={settings.alpacaKey} onChange={(e) => setSettings({...settings, alpacaKey: e.target.value})} className="w-full bg-[#111] border border-zinc-800 rounded p-2 text-white font-mono focus:border-emerald-500 outline-none" />
+        </div>
+        <div>
+          <label className="text-xs text-zinc-500 font-mono mb-1 block">ALPACA SECRET KEY (REQUIRED)</label>
+          <input type="password" value={settings.alpacaSecret} onChange={(e) => setSettings({...settings, alpacaSecret: e.target.value})} className="w-full bg-[#111] border border-zinc-800 rounded p-2 text-white font-mono focus:border-emerald-500 outline-none" />
         </div>
         <div>
           <label className="text-xs text-zinc-500 font-mono mb-1 block">POLYGON API KEY (SIP VOLUME)</label>
@@ -377,6 +381,7 @@ export default function App() {
     const saved = localStorage.getItem('grid_settings');
     return saved ? JSON.parse(saved) : { 
       alpacaKey: '', 
+      alpacaSecret: '', // ADDED SECRET KEY
       polygonKey: '', 
       geminiKey: '', 
       defaultRisk: 50, 
@@ -386,6 +391,8 @@ export default function App() {
   });
 
   const [marketData, setMarketData] = useState({});
+  const [marketStatus, setMarketStatus] = useState('OFFLINE'); // 'OFFLINE', 'LIVE (IEX)', 'ERROR'
+  const [isFetching, setIsFetching] = useState(false);
 
   // Automatically save settings and watchlists
   useEffect(() => {
@@ -396,19 +403,108 @@ export default function App() {
     localStorage.setItem('grid_watchlists', JSON.stringify(watchlists));
   }, [watchlists]);
 
-  // Ensure currently viewed list's tickers exist in marketData
+  // The actual live data fetch engine
+  const fetchMarketData = useCallback(async () => {
+    const { alpacaKey, alpacaSecret } = settings;
+    
+    // Safety checks
+    if (!alpacaKey || !alpacaSecret) {
+      setMarketStatus('OFFLINE');
+      return;
+    }
+    if (activeListTickers.length === 0) return;
+
+    setIsFetching(true);
+
+    try {
+      const symbols = activeListTickers.join(',');
+      const headers = {
+        'APCA-API-KEY-ID': alpacaKey,
+        'APCA-API-SECRET-KEY': alpacaSecret,
+        'Accept': 'application/json'
+      };
+
+      // Pull historical 1m and 5m bars from Alpaca
+      // Free tier uses 'iex'. If you upgrade to paid, change 'feed=iex' to 'feed=sip'
+      const [res1m, res5m, resTrades] = await Promise.all([
+        fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${symbols}&timeframe=1Min&limit=500&feed=iex`, { headers }),
+        fetch(`https://data.alpaca.markets/v2/stocks/bars?symbols=${symbols}&timeframe=5Min&limit=200&feed=iex`, { headers }),
+        fetch(`https://data.alpaca.markets/v2/stocks/trades/latest?symbols=${symbols}&feed=iex`, { headers })
+      ]);
+
+      if (!res1m.ok) {
+         setMarketStatus('INVALID KEYS');
+         setIsFetching(false);
+         return;
+      }
+
+      const [data1m, data5m, dataTrades] = await Promise.all([
+        res1m.json(),
+        res5m.json(),
+        resTrades.json()
+      ]);
+
+      setMarketData(prev => {
+        const newData = { ...prev };
+        
+        activeListTickers.forEach(ticker => {
+          const raw1m = data1m.bars?.[ticker] || [];
+          const raw5m = data5m.bars?.[ticker] || [];
+          const latestTrade = dataTrades.trades?.[ticker];
+
+          // Format timestamps correctly for lightweight-charts
+          const formatBars = (bars) => bars.map(b => ({
+            time: new Date(b.t).getTime() / 1000, 
+            open: b.o, high: b.h, low: b.l, close: b.c
+          })).sort((a, b) => a.time - b.time);
+
+          const formatted1m = formatBars(raw1m);
+          const formatted5m = formatBars(raw5m);
+
+          let price = prev[ticker]?.price || 0;
+          if (latestTrade && latestTrade.p) {
+             price = latestTrade.p;
+          } else if (formatted1m.length > 0) {
+             price = formatted1m[formatted1m.length - 1].close;
+          }
+
+          newData[ticker] = {
+            price,
+            candles1m: formatted1m,
+            candles5m: formatted5m
+          };
+        });
+        return newData;
+      });
+
+      setMarketStatus('LIVE (IEX)');
+    } catch (error) {
+      console.error('Alpaca Fetch Error:', error);
+      setMarketStatus('ERROR');
+    } finally {
+      setIsFetching(false);
+    }
+  }, [activeListTickers, settings]);
+
+  // Initial load and 15-second Auto-Refresh Loop
+  useEffect(() => {
+    fetchMarketData();
+    const interval = setInterval(fetchMarketData, 15000); 
+    return () => clearInterval(interval);
+  }, [fetchMarketData]);
+
+  // Ensure currently viewed list's tickers exist in marketData locally if empty
   useEffect(() => {
     const newData = { ...marketData };
+    let changed = false;
     activeListTickers.forEach(t => {
       if (!newData[t]) {
-        newData[t] = {
-          price: 0,
-          candles1m: [],
-          candles5m: []
-        };
+        newData[t] = { price: 0, candles1m: [], candles5m: [] };
+        changed = true;
       }
     });
-    setMarketData(newData);
+    if (changed) setMarketData(newData);
+    
     // If active ticker is blank but list has items, select the first
     if (!activeTicker && activeListTickers.length > 0) {
       setActiveTicker(activeListTickers[0]);
@@ -449,7 +545,7 @@ export default function App() {
   };
 
   const deleteEntireList = (dateKey) => {
-    if (dateKey === todayKey) return; // Prevent deleting today's list completely
+    if (dateKey === todayKey) return; 
     if (window.confirm(`Delete the watchlist for ${dateKey}?`)) {
       setWatchlists(prev => {
         const newState = { ...prev };
@@ -464,7 +560,7 @@ export default function App() {
   };
 
   const handleManualRefresh = () => {
-    console.log("Manual refresh triggered for: ", activeTicker);
+    fetchMarketData();
   };
 
   return (
@@ -576,13 +672,17 @@ export default function App() {
                <div className="h-6 w-px bg-[#1A1A1A]"></div>
 
                {/* REFRESH BUTTON */}
-               <button onClick={handleManualRefresh} className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-all" title="Manual Refresh">
-                 <RefreshCw className="w-4 h-4" />
+               <button onClick={handleManualRefresh} disabled={isFetching} className={`p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-all ${isFetching ? 'opacity-50' : ''}`} title="Manual Refresh">
+                 <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
                </button>
 
                <div className="text-right flex flex-col items-end">
                   <span className="text-xs font-mono text-zinc-500">MARKET STATUS</span>
-                  <span className="text-sm font-mono text-red-500 flex items-center gap-1"><Power className="w-3 h-3" /> OFFLINE</span>
+                  {marketStatus === 'LIVE (IEX)' ? (
+                    <span className="text-sm font-mono text-emerald-500 flex items-center gap-1"><Wifi className="w-3 h-3" /> LIVE (IEX)</span>
+                  ) : (
+                    <span className="text-sm font-mono text-red-500 flex items-center gap-1"><Power className="w-3 h-3" /> {marketStatus}</span>
+                  )}
                </div>
             </div>
           </div>
